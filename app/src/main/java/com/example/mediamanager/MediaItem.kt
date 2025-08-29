@@ -13,5 +13,6 @@ data class MediaItem(
     val name: String,
     val type: MediaType,
     val dateAdded: Long,
-    val size: Long
+    val size: Long,
+    val tags: List<String> = emptyList()
 )

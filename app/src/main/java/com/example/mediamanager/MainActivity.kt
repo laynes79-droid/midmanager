@@ -1,6 +1,7 @@
 package com.example.mediamanager
 
 import android.Manifest
+import android.app.Application
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
@@ -91,6 +92,10 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun AppNavigation() {
     val navController = rememberNavController()
+    val context = LocalContext.current
+    val factory = MediaViewModelFactory(context.applicationContext as Application)
+    val viewModel: MediaViewModel = viewModel(factory = factory)
+
     NavHost(navController = navController, startDestination = "permission") {
         composable("permission") {
             PermissionHandler(onPermissionsGranted = {
@@ -98,7 +103,7 @@ fun AppNavigation() {
             })
         }
         composable("main") {
-            MainScreen(navController = navController)
+            MainScreen(navController = navController, viewModel = viewModel)
         }
         composable(
             "detail/{mediaType}/{mediaUri}",
@@ -111,7 +116,12 @@ fun AppNavigation() {
             val mediaTypeString = backStackEntry.arguments?.getString("mediaType")
             val decodedUri = Uri.parse(mediaUri)
             val mediaType = MediaType.valueOf(mediaTypeString!!)
-            DetailScreen(uri = decodedUri, type = mediaType, navController = navController)
+            DetailScreen(
+                uri = decodedUri,
+                type = mediaType,
+                navController = navController,
+                viewModel = viewModel
+            )
         }
     }
 }
@@ -159,14 +169,9 @@ fun PermissionHandler(onPermissionsGranted: () -> Unit) {
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
-fun MainScreen(navController: NavController, viewModel: MediaViewModel = viewModel()) {
-    val context = LocalContext.current
-    LaunchedEffect(Unit) {
-        viewModel.loadMedia(context)
-    }
-
+fun MainScreen(navController: NavController, viewModel: MediaViewModel) {
     val tabs = listOf("Imagens", "Vídeos", "Áudio")
     val pagerState = rememberPagerState(pageCount = { tabs.size })
     val coroutineScope = rememberCoroutineScope()
@@ -185,6 +190,8 @@ fun MainScreen(navController: NavController, viewModel: MediaViewModel = viewMod
         Column(modifier = Modifier.padding(paddingValues)) {
             val searchQuery by viewModel.searchQuery.collectAsState()
             val sortOrder by viewModel.sortOrder.collectAsState()
+            val allTags by viewModel.allTags.collectAsState()
+            val selectedTag by viewModel.tagFilter.collectAsState()
 
             TextField(
                 value = searchQuery,
@@ -195,6 +202,11 @@ fun MainScreen(navController: NavController, viewModel: MediaViewModel = viewMod
             SortControls(
                 currentSortOrder = sortOrder,
                 onSortOrderChanged = { viewModel.onSortOrderChanged(it) }
+            )
+            TagFilterControls(
+                allTags = allTags,
+                selectedTag = selectedTag,
+                onTagSelected = { viewModel.onTagFilterChanged(it) }
             )
             TabRow(selectedTabIndex = pagerState.currentPage) {
                 tabs.forEachIndexed { index, title ->
@@ -208,15 +220,15 @@ fun MainScreen(navController: NavController, viewModel: MediaViewModel = viewMod
             HorizontalPager(state = pagerState, modifier = Modifier.fillMaxSize()) { page ->
                 when (page) {
                     0 -> {
-                        val imageItems by viewModel.imageItems.collectAsState(initial = emptyList())
+                        val imageItems by viewModel.imageItems.collectAsState()
                         MediaGrid(items = imageItems, navController = navController)
                     }
                     1 -> {
-                        val videoItems by viewModel.videoItems.collectAsState(initial = emptyList())
+                        val videoItems by viewModel.videoItems.collectAsState()
                         MediaGrid(items = videoItems, navController = navController)
                     }
                     2 -> {
-                        val audioItems by viewModel.audioItems.collectAsState(initial = emptyList())
+                        val audioItems by viewModel.audioItems.collectAsState()
                         MediaGrid(items = audioItems, navController = navController)
                     }
                 }
@@ -225,58 +237,85 @@ fun MainScreen(navController: NavController, viewModel: MediaViewModel = viewMod
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
-fun DetailScreen(uri: Uri, type: MediaType, navController: NavController) {
+fun DetailScreen(uri: Uri, type: MediaType, navController: NavController, viewModel: MediaViewModel) {
     val context = LocalContext.current
+
+    val imageItems by viewModel.imageItems.collectAsState()
+    val videoItems by viewModel.videoItems.collectAsState()
+    val audioItems by viewModel.audioItems.collectAsState()
+    val allItems = imageItems + videoItems + audioItems
+    val item = allItems.find { it.uri == uri }
+
+    var newTag by remember { mutableStateOf("") }
+
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Visualizador") },
+                title = { Text(item?.name ?: "Visualizador") },
                 navigationIcon = {
                     IconButton(onClick = { navController.navigateUp() }) {
                         Icon(Icons.Filled.ArrowBack, contentDescription = "Voltar")
                     }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface,
-                    titleContentColor = MaterialTheme.colorScheme.onSurface,
-                    navigationIconContentColor = MaterialTheme.colorScheme.onSurface
-                )
+                }
             )
         }
     ) { paddingValues ->
-        Box(
-            modifier = Modifier.padding(paddingValues).fillMaxSize(),
-            contentAlignment = Alignment.Center
-        ) {
-            when (type) {
-                MediaType.IMAGE -> {
-                    AsyncImage(
-                        model = uri,
-                        contentDescription = "Full screen image",
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Fit
-                    )
+        Column(modifier = Modifier.padding(paddingValues).fillMaxSize()) {
+            Box(
+                modifier = Modifier.weight(1f).fillMaxWidth(),
+                contentAlignment = Alignment.Center
+            ) {
+                when (type) {
+                    MediaType.IMAGE -> AsyncImage(model = uri, contentDescription = "Full screen image", modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
+                    MediaType.VIDEO, MediaType.AUDIO -> {
+                        val exoPlayer = remember {
+                            ExoPlayer.Builder(context).build().apply {
+                                val mediaItem = Media3MediaItem.fromUri(uri)
+                                setMediaItem(mediaItem)
+                                prepare()
+                                playWhenReady = true
+                            }
+                        }
+                        DisposableEffect(Unit) {
+                            onDispose { exoPlayer.release() }
+                        }
+                        AndroidView(factory = { PlayerView(it).apply { player = exoPlayer } }, modifier = Modifier.fillMaxSize())
+                    }
                 }
-                MediaType.VIDEO, MediaType.AUDIO -> {
-                    val exoPlayer = remember {
-                        ExoPlayer.Builder(context).build().apply {
-                            val mediaItem = Media3MediaItem.fromUri(uri)
-                            setMediaItem(mediaItem)
-                            prepare()
-                            playWhenReady = true
+            }
+            if (item != null) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        item.tags.forEach { tag ->
+                            AssistChip(onClick = {}, label = { Text(tag) })
                         }
                     }
-                    DisposableEffect(Unit) {
-                        onDispose { exoPlayer.release() }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        OutlinedTextField(
+                            value = newTag,
+                            onValueChange = { newTag = it },
+                            label = { Text("Adicionar tag") },
+                            modifier = Modifier.weight(1f)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Button(onClick = {
+                            if (newTag.isNotBlank()) {
+                                viewModel.addTagToMediaItem(item.uri.toString(), newTag.trim())
+                                newTag = ""
+                            }
+                        }) {
+                            Text("Add")
+                        }
                     }
-                    AndroidView(factory = { PlayerView(it).apply { player = exoPlayer } }, modifier = Modifier.fillMaxSize())
                 }
             }
         }
     }
 }
+
 
 // --- Reusable Components ---
 @Composable
@@ -297,6 +336,26 @@ fun SortControls(currentSortOrder: SortOrder, onSortOrderChanged: (SortOrder) ->
             onClick = { onSortOrderChanged(SortOrder.BY_SIZE_DESC) },
             colors = if (currentSortOrder == SortOrder.BY_SIZE_DESC) ButtonDefaults.buttonColors() else ButtonDefaults.outlinedButtonColors()
         ) { Text("Tamanho") }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
+@Composable
+fun TagFilterControls(allTags: List<String>, selectedTag: String?, onTagSelected: (String?) -> Unit) {
+    FlowRow(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        allTags.forEach { tag ->
+            FilterChip(
+                selected = tag == selectedTag,
+                onClick = {
+                    val newSelection = if (tag == selectedTag) null else tag
+                    onTagSelected(newSelection)
+                },
+                label = { Text(tag) }
+            )
+        }
     }
 }
 
