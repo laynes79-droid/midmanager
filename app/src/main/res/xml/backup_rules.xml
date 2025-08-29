@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<full-backup-content>
+    <!--
+   This is a default backup configuration file.
+   You can customize what is backed up by editing this file.
+   For more information, see the documentation at
+   https://developer.android.com/guide/topics/data/autobackup
+    -->
+</full-backup-content>
