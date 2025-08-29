@@ -10,6 +10,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -18,19 +19,27 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Audiotrack
 import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.PlayCircleOutline
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.media3.common.MediaItem as Media3MediaItem
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.ui.PlayerView
 import androidx.navigation.NavController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -41,10 +50,26 @@ import coil.compose.AsyncImage
 import kotlinx.coroutines.launch
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
-import androidx.compose.ui.viewinterop.AndroidView
-import androidx.media3.common.MediaItem as Media3MediaItem
-import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.ui.PlayerView
+
+// --- Theme Definition ---
+private val DarkColorPalette = darkColorScheme(
+    primary = Color(0xFF03DAC5),
+    background = Color(0xFF121212),
+    surface = Color(0xFF1E1E1E),
+    onPrimary = Color(0xFF000000),
+    onBackground = Color(0xFFE0E0E0),
+    onSurface = Color(0xFFE0E0E0)
+)
+
+@Composable
+fun MediaManagerTheme(content: @Composable () -> Unit) {
+    MaterialTheme(
+        colorScheme = DarkColorPalette,
+        typography = Typography(),
+        content = content
+    )
+}
+
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -62,15 +87,14 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+// --- Navigation ---
 @Composable
 fun AppNavigation() {
     val navController = rememberNavController()
     NavHost(navController = navController, startDestination = "permission") {
         composable("permission") {
             PermissionHandler(onPermissionsGranted = {
-                navController.navigate("main") {
-                    popUpTo("permission") { inclusive = true }
-                }
+                navController.navigate("main") { popUpTo("permission") { inclusive = true } }
             })
         }
         composable("main") {
@@ -87,11 +111,12 @@ fun AppNavigation() {
             val mediaTypeString = backStackEntry.arguments?.getString("mediaType")
             val decodedUri = Uri.parse(mediaUri)
             val mediaType = MediaType.valueOf(mediaTypeString!!)
-            DetailScreen(uri = decodedUri, type = mediaType)
+            DetailScreen(uri = decodedUri, type = mediaType, navController = navController)
         }
     }
 }
 
+// --- Screens ---
 @Composable
 fun PermissionHandler(onPermissionsGranted: () -> Unit) {
     val context = LocalContext.current
@@ -106,11 +131,7 @@ fun PermissionHandler(onPermissionsGranted: () -> Unit) {
     }
 
     var hasPermissions by remember {
-        mutableStateOf(
-            permissionsToRequest.all {
-                ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED
-            }
-        )
+        mutableStateOf(permissionsToRequest.all { ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED })
     }
 
     val permissionsLauncher = rememberLauncherForActivityResult(
@@ -121,30 +142,19 @@ fun PermissionHandler(onPermissionsGranted: () -> Unit) {
         }
     }
 
-    LaunchedEffect(hasPermissions) {
-        if (hasPermissions) {
-            onPermissionsGranted()
-        }
-    }
-
-    if (!hasPermissions) {
-        RequestPermissionScreen(
-            onPermissionRequest = { permissionsLauncher.launch(permissionsToRequest) }
-        )
-    }
-}
-
-@Composable
-fun RequestPermissionScreen(onPermissionRequest: () -> Unit) {
-    Column(
-        modifier = Modifier.fillMaxSize(),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Text("Permissão necessária para acessar todas as mídias.")
-        Spacer(modifier = Modifier.height(8.dp))
-        Button(onClick = onPermissionRequest) {
-            Text("Conceder Permissões")
+    if (hasPermissions) {
+        onPermissionsGranted()
+    } else {
+        Column(
+            modifier = Modifier.fillMaxSize(),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text("Permissão necessária para acessar todas as mídias.")
+            Spacer(modifier = Modifier.height(8.dp))
+            Button(onClick = { permissionsLauncher.launch(permissionsToRequest) }) {
+                Text("Conceder Permissões")
+            }
         }
     }
 }
@@ -153,12 +163,6 @@ fun RequestPermissionScreen(onPermissionRequest: () -> Unit) {
 @Composable
 fun MainScreen(navController: NavController, viewModel: MediaViewModel = viewModel()) {
     val context = LocalContext.current
-    val imageItems by viewModel.imageItems
-    val videoItems by viewModel.videoItems
-    val audioItems by viewModel.audioItems
-    val searchQuery by viewModel.searchQuery
-    val sortOrder by viewModel.sortOrder
-
     LaunchedEffect(Unit) {
         viewModel.loadMedia(context)
     }
@@ -167,36 +171,109 @@ fun MainScreen(navController: NavController, viewModel: MediaViewModel = viewMod
     val pagerState = rememberPagerState(pageCount = { tabs.size })
     val coroutineScope = rememberCoroutineScope()
 
-    Column {
-        TextField(
-            value = searchQuery,
-            onValueChange = { viewModel.onSearchQueryChanged(it) },
-            label = { Text("Buscar por nome...") },
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp)
-        )
-        SortControls(
-            currentSortOrder = sortOrder,
-            onSortOrderChanged = { viewModel.onSortOrderChanged(it) }
-        )
-        TabRow(selectedTabIndex = pagerState.currentPage) {
-            tabs.forEachIndexed { index, title ->
-                Tab(
-                    selected = pagerState.currentPage == index,
-                    onClick = { coroutineScope.launch { pagerState.animateScrollToPage(index) } },
-                    text = { Text(title) }
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Media Manager") },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    titleContentColor = MaterialTheme.colorScheme.onSurface
                 )
-            }
+            )
         }
-        HorizontalPager(state = pagerState, modifier = Modifier.fillMaxSize()) { page ->
-            when (page) {
-                0 -> MediaGrid(items = imageItems, navController = navController)
-                1 -> MediaGrid(items = videoItems, navController = navController)
-                2 -> MediaGrid(items = audioItems, navController = navController)
+    ) { paddingValues ->
+        Column(modifier = Modifier.padding(paddingValues)) {
+            val searchQuery by viewModel.searchQuery
+            val sortOrder by viewModel.sortOrder
+
+            TextField(
+                value = searchQuery,
+                onValueChange = { viewModel.onSearchQueryChanged(it) },
+                label = { Text("Buscar por nome...") },
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp)
+            )
+            SortControls(
+                currentSortOrder = sortOrder,
+                onSortOrderChanged = { viewModel.onSortOrderChanged(it) }
+            )
+            TabRow(selectedTabIndex = pagerState.currentPage) {
+                tabs.forEachIndexed { index, title ->
+                    Tab(
+                        selected = pagerState.currentPage == index,
+                        onClick = { coroutineScope.launch { pagerState.animateScrollToPage(index) } },
+                        text = { Text(title) }
+                    )
+                }
+            }
+            HorizontalPager(state = pagerState, modifier = Modifier.fillMaxSize()) { page ->
+                val imageItems by viewModel.imageItems
+                val videoItems by viewModel.videoItems
+                val audioItems by viewModel.audioItems
+
+                when (page) {
+                    0 -> MediaGrid(items = imageItems, navController = navController)
+                    1 -> MediaGrid(items = videoItems, navController = navController)
+                    2 -> MediaGrid(items = audioItems, navController = navController)
+                }
             }
         }
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun DetailScreen(uri: Uri, type: MediaType, navController: NavController) {
+    val context = LocalContext.current
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Visualizador") },
+                navigationIcon = {
+                    IconButton(onClick = { navController.navigateUp() }) {
+                        Icon(Icons.Filled.ArrowBack, contentDescription = "Voltar")
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    titleContentColor = MaterialTheme.colorScheme.onSurface,
+                    navigationIconContentColor = MaterialTheme.colorScheme.onSurface
+                )
+            )
+        }
+    ) { paddingValues ->
+        Box(
+            modifier = Modifier.padding(paddingValues).fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) {
+            when (type) {
+                MediaType.IMAGE -> {
+                    AsyncImage(
+                        model = uri,
+                        contentDescription = "Full screen image",
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Fit
+                    )
+                }
+                MediaType.VIDEO, MediaType.AUDIO -> {
+                    val exoPlayer = remember {
+                        ExoPlayer.Builder(context).build().apply {
+                            val mediaItem = Media3MediaItem.fromUri(uri)
+                            setMediaItem(mediaItem)
+                            prepare()
+                            playWhenReady = true
+                        }
+                    }
+                    DisposableEffect(Unit) {
+                        onDispose { exoPlayer.release() }
+                    }
+                    AndroidView(factory = { PlayerView(it).apply { player = exoPlayer } }, modifier = Modifier.fillMaxSize())
+                }
+            }
+        }
+    }
+}
+
+// --- Reusable Components ---
 @Composable
 fun SortControls(currentSortOrder: SortOrder, onSortOrderChanged: (SortOrder) -> Unit) {
     Row(
@@ -218,6 +295,7 @@ fun SortControls(currentSortOrder: SortOrder, onSortOrderChanged: (SortOrder) ->
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun MediaGrid(items: List<MediaItem>, navController: NavController) {
     if (items.isEmpty()) {
@@ -232,23 +310,26 @@ fun MediaGrid(items: List<MediaItem>, navController: NavController) {
         verticalArrangement = Arrangement.spacedBy(8.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        items(items) { item ->
-            MediaGridItem(item = item, navController = navController)
+        items(items, key = { it.uri }) { item ->
+            MediaGridItem(
+                item = item,
+                navController = navController,
+                modifier = Modifier.animateItemPlacement()
+            )
         }
     }
 }
 
 @Composable
-fun MediaGridItem(item: MediaItem, navController: NavController) {
+fun MediaGridItem(item: MediaItem, navController: NavController, modifier: Modifier = Modifier) {
     Card(
-        modifier = Modifier
+        modifier = modifier
             .aspectRatio(1f)
             .clickable {
                 val encodedUri = URLEncoder.encode(item.uri.toString(), StandardCharsets.UTF_8.name())
                 navController.navigate("detail/${item.type.name}/$encodedUri")
             }
     ) {
-        // ... (rest of the item UI is the same)
         Column(
             modifier = Modifier.fillMaxSize(),
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -258,59 +339,39 @@ fun MediaGridItem(item: MediaItem, navController: NavController) {
                 modifier = Modifier.weight(1f).fillMaxWidth(),
                 contentAlignment = Alignment.Center
             ) {
+                val imageModifier = Modifier.fillMaxSize()
                 when (item.type) {
-                    MediaType.IMAGE -> AsyncImage(model = item.uri, contentDescription = item.name, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-                    MediaType.VIDEO -> Icon(Icons.Default.Videocam, contentDescription = "Video", modifier = Modifier.size(48.dp))
+                    MediaType.IMAGE -> AsyncImage(model = item.uri, contentDescription = item.name, modifier = imageModifier, contentScale = ContentScale.Crop)
+                    MediaType.VIDEO -> AsyncImage(model = item.uri, contentDescription = item.name, modifier = imageModifier, contentScale = ContentScale.Crop)
                     MediaType.AUDIO -> Icon(Icons.Default.Audiotrack, contentDescription = "Audio", modifier = Modifier.size(48.dp))
                 }
-            }
-            Text(text = item.name, style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center, maxLines = 2, modifier = Modifier.padding(8.dp))
-        }
-    }
-}
-
-@Composable
-fun DetailScreen(uri: Uri, type: MediaType) {
-    val context = LocalContext.current
-
-    when (type) {
-        MediaType.IMAGE -> {
-            AsyncImage(
-                model = uri,
-                contentDescription = "Full screen image",
-                modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Fit
-            )
-        }
-        MediaType.VIDEO, MediaType.AUDIO -> {
-            val exoPlayer = remember {
-                ExoPlayer.Builder(context).build().apply {
-                    val mediaItem = Media3MediaItem.fromUri(uri)
-                    setMediaItem(mediaItem)
-                    prepare()
-                    playWhenReady = true
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(
+                            Brush.verticalGradient(
+                                colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.7f)),
+                                startY = 200f * 0.7f,
+                                endY = 200f
+                            )
+                        )
+                )
+                if (item.type == MediaType.VIDEO) {
+                    Icon(
+                        imageVector = Icons.Filled.PlayCircleOutline,
+                        contentDescription = "Play Video",
+                        modifier = Modifier.size(48.dp),
+                        tint = Color.White.copy(alpha = 0.9f)
+                    )
                 }
             }
-
-            DisposableEffect(Unit) {
-                onDispose {
-                    exoPlayer.release()
-                }
-            }
-
-            AndroidView(
-                factory = {
-                    PlayerView(it).apply {
-                        player = exoPlayer
-                    }
-                },
-                modifier = Modifier.fillMaxSize()
+            Text(
+                text = item.name,
+                style = MaterialTheme.typography.bodySmall,
+                textAlign = TextAlign.Center,
+                maxLines = 2,
+                modifier = Modifier.padding(8.dp)
             )
         }
     }
-}
-
-@Composable
-fun MediaManagerTheme(content: @Composable () -> Unit) {
-    MaterialTheme(content = content)
 }
