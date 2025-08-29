@@ -35,6 +35,17 @@ O **Agente Manager** atua como um supervisor de qualidade e integração entre a
 - **Feedback e Qualidade:** Analisar os resultados dos testes e fornecer feedback detalhado aos agentes Android e Web para correções e melhorias.
 - **Guardião da Consistência:** Validar que a experiência do usuário seja coesa, independentemente da plataforma utilizada.
 
+### 4. Agente de Commits
+
+O **Agente de Commits** é um agente especializado cuja única função é automatizar o processo de submissão do código ao repositório.
+
+**Responsabilidades:**
+- Receber o código finalizado e verificado dos outros agentes.
+- Criar mensagens de commit claras, descritivas e seguindo os padrões convencionais.
+- Gerar um título e uma descrição para a Pull Request (ou Change Request).
+- Executar o comando de `submit` para registrar o trabalho no controle de versão.
+- Operar somente após a confirmação de que os testes e as revisões de código foram concluídos com sucesso.
+
 ## Princípios Gerais
 
 - **Autenticação:** O método de login primário para todas as plataformas é o **Login com Google**. A implementação deve ser segura e seguir as diretrizes oficiais do Google para garantir a privacidade e a segurança dos dados do usuário.
