@@ -1,5 +1,6 @@
 package com.example.mediamanager
 
+import android.content.ContentUris
 import android.content.Context
 import android.net.Uri
 import android.provider.MediaStore
@@ -12,38 +13,49 @@ import kotlinx.coroutines.launch
 
 class MediaViewModel : ViewModel() {
 
-    private val _mediaItems = mutableStateOf<List<MediaItem>>(emptyList())
-    val mediaItems: State<List<MediaItem>> = _mediaItems
+    private val _imageItems = mutableStateOf<List<MediaItem>>(emptyList())
+    val imageItems: State<List<MediaItem>> = _imageItems
+
+    private val _videoItems = mutableStateOf<List<MediaItem>>(emptyList())
+    val videoItems: State<List<MediaItem>> = _videoItems
+
+    private val _audioItems = mutableStateOf<List<MediaItem>>(emptyList())
+    val audioItems: State<List<MediaItem>> = _audioItems
 
     fun loadMedia(context: Context) {
         viewModelScope.launch(Dispatchers.IO) {
-            val projection = arrayOf(
-                MediaStore.Images.Media._ID,
-                MediaStore.Images.Media.DISPLAY_NAME
-            )
-
-            val items = mutableListOf<MediaItem>()
-            context.contentResolver.query(
-                MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
-                projection,
-                null,
-                null,
-                "${MediaStore.Images.Media.DATE_ADDED} DESC"
-            )?.use { cursor ->
-                val idColumn = cursor.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
-                val nameColumn = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DISPLAY_NAME)
-
-                while (cursor.moveToNext()) {
-                    val id = cursor.getLong(idColumn)
-                    val name = cursor.getString(nameColumn)
-                    val contentUri = Uri.withAppendedPath(
-                        MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
-                        id.toString()
-                    )
-                    items.add(MediaItem(uri = contentUri, name = name))
-                }
-            }
-            _mediaItems.value = items
+            _imageItems.value = queryMediaStore(context, MediaStore.Images.Media.EXTERNAL_CONTENT_URI, MediaType.IMAGE)
+            _videoItems.value = queryMediaStore(context, MediaStore.Video.Media.EXTERNAL_CONTENT_URI, MediaType.VIDEO)
+            _audioItems.value = queryMediaStore(context, MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, MediaType.AUDIO)
         }
+    }
+
+    private fun queryMediaStore(context: Context, uri: Uri, type: MediaType): List<MediaItem> {
+        val items = mutableListOf<MediaItem>()
+
+        val projection = arrayOf(
+            MediaStore.Files.FileColumns._ID,
+            MediaStore.Files.FileColumns.DISPLAY_NAME
+        )
+
+        context.contentResolver.query(
+            uri,
+            projection,
+            null,
+            null,
+            "${MediaStore.Files.FileColumns.DATE_ADDED} DESC"
+        )?.use { cursor ->
+            val idColumn = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns._ID)
+            val nameColumn = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DISPLAY_NAME)
+
+            while (cursor.moveToNext()) {
+                val id = cursor.getLong(idColumn)
+                val name = cursor.getString(nameColumn)
+                val contentUri = ContentUris.withAppendedId(uri, id)
+
+                items.add(MediaItem(uri = contentUri, name = name, type = type))
+            }
+        }
+        return items
     }
 }
