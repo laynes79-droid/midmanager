@@ -183,8 +183,8 @@ fun MainScreen(navController: NavController, viewModel: MediaViewModel = viewMod
         }
     ) { paddingValues ->
         Column(modifier = Modifier.padding(paddingValues)) {
-            val searchQuery by viewModel.searchQuery
-            val sortOrder by viewModel.sortOrder
+            val searchQuery by viewModel.searchQuery.collectAsState()
+            val sortOrder by viewModel.sortOrder.collectAsState()
 
             TextField(
                 value = searchQuery,
@@ -206,14 +206,19 @@ fun MainScreen(navController: NavController, viewModel: MediaViewModel = viewMod
                 }
             }
             HorizontalPager(state = pagerState, modifier = Modifier.fillMaxSize()) { page ->
-                val imageItems by viewModel.imageItems
-                val videoItems by viewModel.videoItems
-                val audioItems by viewModel.audioItems
-
                 when (page) {
-                    0 -> MediaGrid(items = imageItems, navController = navController)
-                    1 -> MediaGrid(items = videoItems, navController = navController)
-                    2 -> MediaGrid(items = audioItems, navController = navController)
+                    0 -> {
+                        val imageItems by viewModel.imageItems.collectAsState(initial = emptyList())
+                        MediaGrid(items = imageItems, navController = navController)
+                    }
+                    1 -> {
+                        val videoItems by viewModel.videoItems.collectAsState(initial = emptyList())
+                        MediaGrid(items = videoItems, navController = navController)
+                    }
+                    2 -> {
+                        val audioItems by viewModel.audioItems.collectAsState(initial = emptyList())
+                        MediaGrid(items = audioItems, navController = navController)
+                    }
                 }
             }
         }

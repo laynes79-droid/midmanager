@@ -4,12 +4,12 @@ import android.content.ContentUris
 import android.content.Context
 import android.net.Uri
 import android.provider.MediaStore
-import androidx.compose.runtime.State
-import androidx.compose.runtime.derivedStateOf
-import androidx.compose.runtime.mutableStateOf
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 
 enum class SortOrder {
@@ -20,19 +20,19 @@ enum class SortOrder {
 
 class MediaViewModel : ViewModel() {
 
-    private val _allMediaItems = mutableStateOf<List<MediaItem>>(emptyList())
+    private val _allMediaItems = MutableStateFlow<List<MediaItem>>(emptyList())
 
-    val searchQuery = mutableStateOf("")
-    val sortOrder = mutableStateOf(SortOrder.BY_DATE_DESC)
+    val searchQuery = MutableStateFlow("")
+    val sortOrder = MutableStateFlow(SortOrder.BY_DATE_DESC)
 
-    val imageItems: State<List<MediaItem>> = derivedStateOf {
-        filterAndSort(_allMediaItems.value, MediaType.IMAGE, searchQuery.value, sortOrder.value)
+    val imageItems = searchQuery.combine(sortOrder) { query, order ->
+        filterAndSort(_allMediaItems.value, MediaType.IMAGE, query, order)
     }
-    val videoItems: State<List<MediaItem>> = derivedStateOf {
-        filterAndSort(_allMediaItems.value, MediaType.VIDEO, searchQuery.value, sortOrder.value)
+    val videoItems = searchQuery.combine(sortOrder) { query, order ->
+        filterAndSort(_allMediaItems.value, MediaType.VIDEO, query, order)
     }
-    val audioItems: State<List<MediaItem>> = derivedStateOf {
-        filterAndSort(_allMediaItems.value, MediaType.AUDIO, searchQuery.value, sortOrder.value)
+    val audioItems = searchQuery.combine(sortOrder) { query, order ->
+        filterAndSort(_allMediaItems.value, MediaType.AUDIO, query, order)
     }
 
     fun onSearchQueryChanged(newQuery: String) {
