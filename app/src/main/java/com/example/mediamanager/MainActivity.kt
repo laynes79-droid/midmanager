@@ -100,13 +100,15 @@ fun RequestPermissionScreen(onPermissionRequest: () -> Unit) {
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
+@OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun MainScreen(viewModel: MediaViewModel = viewModel()) {
     val context = LocalContext.current
     val imageItems by viewModel.imageItems
     val videoItems by viewModel.videoItems
     val audioItems by viewModel.audioItems
+    val searchQuery by viewModel.searchQuery
+    val sortOrder by viewModel.sortOrder
 
     LaunchedEffect(Unit) {
         viewModel.loadMedia(context)
@@ -117,6 +119,20 @@ fun MainScreen(viewModel: MediaViewModel = viewModel()) {
     val coroutineScope = rememberCoroutineScope()
 
     Column {
+        TextField(
+            value = searchQuery,
+            onValueChange = { viewModel.onSearchQueryChanged(it) },
+            label = { Text("Buscar por nome...") },
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp, vertical = 4.dp)
+        )
+
+        SortControls(
+            currentSortOrder = sortOrder,
+            onSortOrderChanged = { viewModel.onSortOrderChanged(it) }
+        )
+
         TabRow(selectedTabIndex = pagerState.currentPage) {
             tabs.forEachIndexed { index, title ->
                 Tab(
@@ -140,6 +156,35 @@ fun MainScreen(viewModel: MediaViewModel = viewModel()) {
                 1 -> MediaGrid(items = videoItems)
                 2 -> MediaGrid(items = audioItems)
             }
+        }
+    }
+}
+
+@Composable
+fun SortControls(currentSortOrder: SortOrder, onSortOrderChanged: (SortOrder) -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 8.dp, vertical = 4.dp),
+        horizontalArrangement = Arrangement.SpaceEvenly
+    ) {
+        Button(
+            onClick = { onSortOrderChanged(SortOrder.BY_DATE_DESC) },
+            colors = if (currentSortOrder == SortOrder.BY_DATE_DESC) ButtonDefaults.buttonColors() else ButtonDefaults.outlinedButtonColors()
+        ) {
+            Text("Data")
+        }
+        Button(
+            onClick = { onSortOrderChanged(SortOrder.BY_NAME_ASC) },
+            colors = if (currentSortOrder == SortOrder.BY_NAME_ASC) ButtonDefaults.buttonColors() else ButtonDefaults.outlinedButtonColors()
+        ) {
+            Text("Nome")
+        }
+        Button(
+            onClick = { onSortOrderChanged(SortOrder.BY_SIZE_DESC) },
+            colors = if (currentSortOrder == SortOrder.BY_SIZE_DESC) ButtonDefaults.buttonColors() else ButtonDefaults.outlinedButtonColors()
+        ) {
+            Text("Tamanho")
         }
     }
 }

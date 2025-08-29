@@ -5,28 +5,69 @@ import android.content.Context
 import android.net.Uri
 import android.provider.MediaStore
 import androidx.compose.runtime.State
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
+enum class SortOrder {
+    BY_DATE_DESC,
+    BY_NAME_ASC,
+    BY_SIZE_DESC
+}
+
 class MediaViewModel : ViewModel() {
 
-    private val _imageItems = mutableStateOf<List<MediaItem>>(emptyList())
-    val imageItems: State<List<MediaItem>> = _imageItems
+    private val _allMediaItems = mutableStateOf<List<MediaItem>>(emptyList())
 
-    private val _videoItems = mutableStateOf<List<MediaItem>>(emptyList())
-    val videoItems: State<List<MediaItem>> = _videoItems
+    val searchQuery = mutableStateOf("")
+    val sortOrder = mutableStateOf(SortOrder.BY_DATE_DESC)
 
-    private val _audioItems = mutableStateOf<List<MediaItem>>(emptyList())
-    val audioItems: State<List<MediaItem>> = _audioItems
+    val imageItems: State<List<MediaItem>> = derivedStateOf {
+        filterAndSort(_allMediaItems.value, MediaType.IMAGE, searchQuery.value, sortOrder.value)
+    }
+    val videoItems: State<List<MediaItem>> = derivedStateOf {
+        filterAndSort(_allMediaItems.value, MediaType.VIDEO, searchQuery.value, sortOrder.value)
+    }
+    val audioItems: State<List<MediaItem>> = derivedStateOf {
+        filterAndSort(_allMediaItems.value, MediaType.AUDIO, searchQuery.value, sortOrder.value)
+    }
+
+    fun onSearchQueryChanged(newQuery: String) {
+        searchQuery.value = newQuery
+    }
+
+    fun onSortOrderChanged(newSortOrder: SortOrder) {
+        sortOrder.value = newSortOrder
+    }
+
+    private fun filterAndSort(
+        items: List<MediaItem>,
+        type: MediaType,
+        query: String,
+        order: SortOrder
+    ): List<MediaItem> {
+        val filtered = items.filter {
+            it.type == type && it.name.contains(query, ignoreCase = true)
+        }
+        return when (order) {
+            SortOrder.BY_DATE_DESC -> filtered.sortedByDescending { it.dateAdded }
+            SortOrder.BY_NAME_ASC -> filtered.sortedBy { it.name }
+            SortOrder.BY_SIZE_DESC -> filtered.sortedByDescending { it.size }
+        }
+    }
 
     fun loadMedia(context: Context) {
         viewModelScope.launch(Dispatchers.IO) {
-            _imageItems.value = queryMediaStore(context, MediaStore.Images.Media.EXTERNAL_CONTENT_URI, MediaType.IMAGE)
-            _videoItems.value = queryMediaStore(context, MediaStore.Video.Media.EXTERNAL_CONTENT_URI, MediaType.VIDEO)
-            _audioItems.value = queryMediaStore(context, MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, MediaType.AUDIO)
+            val allItems = mutableListOf<MediaItem>()
+
+            allItems.addAll(queryMediaStore(context, MediaStore.Images.Media.EXTERNAL_CONTENT_URI, MediaType.IMAGE))
+            allItems.addAll(queryMediaStore(context, MediaStore.Video.Media.EXTERNAL_CONTENT_URI, MediaType.VIDEO))
+            allItems.addAll(queryMediaStore(context, MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, MediaType.AUDIO))
+
+            _allMediaItems.value = allItems
         }
     }
 
@@ -35,7 +76,9 @@ class MediaViewModel : ViewModel() {
 
         val projection = arrayOf(
             MediaStore.Files.FileColumns._ID,
-            MediaStore.Files.FileColumns.DISPLAY_NAME
+            MediaStore.Files.FileColumns.DISPLAY_NAME,
+            MediaStore.Files.FileColumns.DATE_ADDED,
+            MediaStore.Files.FileColumns.SIZE
         )
 
         context.contentResolver.query(
@@ -43,17 +86,21 @@ class MediaViewModel : ViewModel() {
             projection,
             null,
             null,
-            "${MediaStore.Files.FileColumns.DATE_ADDED} DESC"
+            null
         )?.use { cursor ->
             val idColumn = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns._ID)
             val nameColumn = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DISPLAY_NAME)
+            val dateColumn = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DATE_ADDED)
+            val sizeColumn = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.SIZE)
 
             while (cursor.moveToNext()) {
                 val id = cursor.getLong(idColumn)
                 val name = cursor.getString(nameColumn)
+                val date = cursor.getLong(dateColumn)
+                val size = cursor.getLong(sizeColumn)
                 val contentUri = ContentUris.withAppendedId(uri, id)
 
-                items.add(MediaItem(uri = contentUri, name = name, type = type))
+                items.add(MediaItem(uri = contentUri, name = name, type = type, dateAdded = date, size = size))
             }
         }
         return items

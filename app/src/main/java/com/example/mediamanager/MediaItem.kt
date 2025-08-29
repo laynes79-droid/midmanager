@@ -11,5 +11,7 @@ enum class MediaType {
 data class MediaItem(
     val uri: Uri,
     val name: String,
-    val type: MediaType
+    val type: MediaType,
+    val dateAdded: Long,
+    val size: Long
 )
