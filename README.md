@@ -17,6 +17,11 @@ Até o momento, o aplicativo funciona como uma galeria local avançada, com as s
 - **Ordenação Avançada:** Organize suas mídias por Data, Nome ou Tamanho.
 - **Animações Fluidas:** A interface conta com animações sutis ao reordenar os itens na grade, tornando a experiência mais dinâmica.
 
+## Status do Projeto
+
+- **Aplicativo Android:** `Versão Alpha`. As funcionalidades principais para gerenciamento de mídia local estão implementadas e funcionais. Próximos passos incluem a integração com serviços de nuvem e refinamento contínuo da UI/UX.
+- **Aplicação Web:** `Planejada`. O desenvolvimento da interface web ainda não foi iniciado.
+
 ## Como Compilar e Usar
 
 Para compilar e executar este projeto em seu próprio ambiente, siga os passos abaixo.
