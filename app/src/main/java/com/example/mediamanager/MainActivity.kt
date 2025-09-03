@@ -21,10 +21,11 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Audiotrack
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayCircleOutline
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material3.*
@@ -174,64 +175,88 @@ fun PermissionHandler(onPermissionsGranted: () -> Unit) {
 @OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun MainScreen(navController: NavController, viewModel: MediaViewModel) {
-    val tabs = listOf("Imagens", "Vídeos", "Áudio")
-    val pagerState = rememberPagerState(pageCount = { tabs.size })
+    val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val coroutineScope = rememberCoroutineScope()
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Media Manager") },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface,
-                    titleContentColor = MaterialTheme.colorScheme.onSurface
-                )
-            )
-        }
-    ) { paddingValues ->
-        Column(modifier = Modifier.padding(paddingValues)) {
-            val searchQuery by viewModel.searchQuery.collectAsState()
-            val sortOrder by viewModel.sortOrder.collectAsState()
-            val allTags by viewModel.allTags.collectAsState()
-            val selectedTag by viewModel.tagFilter.collectAsState()
+    val searchQuery by viewModel.searchQuery.collectAsState()
+    val sortOrder by viewModel.sortOrder.collectAsState()
+    val allTags by viewModel.allTags.collectAsState()
+    val selectedTag by viewModel.tagFilter.collectAsState()
 
-            TextField(
-                value = searchQuery,
-                onValueChange = { viewModel.onSearchQueryChanged(it) },
-                label = { Text("Buscar por nome...") },
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp)
-            )
-            SortControls(
-                currentSortOrder = sortOrder,
-                onSortOrderChanged = { viewModel.onSortOrderChanged(it) }
-            )
-            TagFilterControls(
-                allTags = allTags,
-                selectedTag = selectedTag,
-                onTagSelected = { viewModel.onTagFilterChanged(it) }
-            )
-            TabRow(selectedTabIndex = pagerState.currentPage) {
-                tabs.forEachIndexed { index, title ->
-                    Tab(
-                        selected = pagerState.currentPage == index,
-                        onClick = { coroutineScope.launch { pagerState.animateScrollToPage(index) } },
-                        text = { Text(title) }
+    ModalNavigationDrawer(
+        drawerState = drawerState,
+        drawerContent = {
+            ModalDrawerSheet {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text("Filtros e Ordenação", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(bottom = 16.dp))
+
+                    TextField(
+                        value = searchQuery,
+                        onValueChange = { viewModel.onSearchQueryChanged(it) },
+                        label = { Text("Buscar por nome...") },
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
+                    )
+
+                    Text("Ordenar por", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 16.dp, bottom = 8.dp))
+                    SortControls(
+                        currentSortOrder = sortOrder,
+                        onSortOrderChanged = { viewModel.onSortOrderChanged(it) }
+                    )
+
+                    Text("Filtrar por Tag", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 16.dp, bottom = 8.dp))
+                    TagFilterControls(
+                        allTags = allTags,
+                        selectedTag = selectedTag,
+                        onTagSelected = { viewModel.onTagFilterChanged(it) }
                     )
                 }
             }
-            HorizontalPager(state = pagerState, modifier = Modifier.fillMaxSize()) { page ->
-                when (page) {
-                    0 -> {
-                        val imageItems by viewModel.imageItems.collectAsState()
-                        MediaGrid(items = imageItems, navController = navController)
+        }
+    ) {
+        Scaffold(
+            topBar = {
+                TopAppBar(
+                    title = { Text("Media Manager") },
+                    navigationIcon = {
+                        IconButton(onClick = { coroutineScope.launch { drawerState.open() } }) {
+                            Icon(Icons.Filled.Menu, contentDescription = "Abrir menu")
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.surface,
+                        titleContentColor = MaterialTheme.colorScheme.onSurface,
+                        navigationIconContentColor = MaterialTheme.colorScheme.onSurface
+                    )
+                )
+            }
+        ) { paddingValues ->
+            Column(modifier = Modifier.padding(paddingValues)) {
+                val tabs = listOf("Imagens", "Vídeos", "Áudio")
+                val pagerState = rememberPagerState(pageCount = { tabs.size })
+
+                TabRow(selectedTabIndex = pagerState.currentPage) {
+                    tabs.forEachIndexed { index, title ->
+                        Tab(
+                            selected = pagerState.currentPage == index,
+                            onClick = { coroutineScope.launch { pagerState.animateScrollToPage(index) } },
+                            text = { Text(title) }
+                        )
                     }
-                    1 -> {
-                        val videoItems by viewModel.videoItems.collectAsState()
-                        MediaGrid(items = videoItems, navController = navController)
-                    }
-                    2 -> {
-                        val audioItems by viewModel.audioItems.collectAsState()
-                        MediaGrid(items = audioItems, navController = navController)
+                }
+                HorizontalPager(state = pagerState, modifier = Modifier.fillMaxSize()) { page ->
+                    when (page) {
+                        0 -> {
+                            val imageItems by viewModel.imageItems.collectAsState()
+                            MediaGrid(items = imageItems, navController = navController)
+                        }
+                        1 -> {
+                            val videoItems by viewModel.videoItems.collectAsState()
+                            MediaGrid(items = videoItems, navController = navController)
+                        }
+                        2 -> {
+                            val audioItems by viewModel.audioItems.collectAsState()
+                            MediaGrid(items = audioItems, navController = navController)
+                        }
                     }
                 }
             }
@@ -243,13 +268,11 @@ fun MainScreen(navController: NavController, viewModel: MediaViewModel) {
 @Composable
 fun DetailScreen(uri: Uri, type: MediaType, navController: NavController, viewModel: MediaViewModel) {
     val context = LocalContext.current
-
     val imageItems by viewModel.imageItems.collectAsState()
     val videoItems by viewModel.videoItems.collectAsState()
     val audioItems by viewModel.audioItems.collectAsState()
     val allItems = imageItems + videoItems + audioItems
     val item = allItems.find { it.uri == uri }
-
     var newTag by remember { mutableStateOf("") }
 
     Scaffold(
@@ -279,9 +302,7 @@ fun DetailScreen(uri: Uri, type: MediaType, navController: NavController, viewMo
                         DropdownMenuItem(
                             text = { Text("Duplicar") },
                             onClick = {
-                                item?.let {
-                                    viewModel.duplicateMediaItem(it)
-                                }
+                                item?.let { viewModel.duplicateMediaItem(it) }
                                 showMenu = false
                             }
                         )
