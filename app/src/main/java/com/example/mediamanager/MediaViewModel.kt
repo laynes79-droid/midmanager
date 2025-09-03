@@ -8,6 +8,8 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.mediamanager.database.AppDatabase
 import com.example.mediamanager.database.MediaMetadata
+import android.content.ContentValues
+import android.os.Environment
 import com.example.mediamanager.database.MediaMetadataDao
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -77,6 +79,60 @@ class MediaViewModel(application: Application) : AndroidViewModel(application) {
     fun onSearchQueryChanged(newQuery: String) { searchQuery.value = newQuery }
     fun onSortOrderChanged(newSortOrder: SortOrder) { sortOrder.value = newSortOrder }
     fun onTagFilterChanged(tag: String?) { tagFilter.value = tag }
+
+    fun deleteMediaItem(uri: Uri) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                getApplication<Application>().contentResolver.delete(uri, null, null)
+                loadMedia() // Refresh the list after deletion
+            } catch (e: Exception) {
+                e.printStackTrace()
+                // TODO: Handle exceptions, e.g., show an error message to the user
+            }
+        }
+    }
+
+    fun duplicateMediaItem(item: MediaItem) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val context = getApplication<Application>().applicationContext
+            val contentResolver = context.contentResolver
+
+            val newName = "copy_of_${item.name}"
+            val contentValues = ContentValues().apply {
+                put(MediaStore.MediaColumns.DISPLAY_NAME, newName)
+                put(MediaStore.MediaColumns.MIME_TYPE, contentResolver.getType(item.uri))
+                // Copy to the same primary directory (e.g., Pictures, Movies)
+                when (item.type) {
+                    MediaType.IMAGE -> put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_PICTURES)
+                    MediaType.VIDEO -> put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_MOVIES)
+                    MediaType.AUDIO -> put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_MUSIC)
+                }
+            }
+
+            val collectionUri = when(item.type) {
+                MediaType.IMAGE -> MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+                MediaType.VIDEO -> MediaStore.Video.Media.EXTERNAL_CONTENT_URI
+                MediaType.AUDIO -> MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
+            }
+
+            val newFileUri = contentResolver.insert(collectionUri, contentValues)
+
+            if (newFileUri != null) {
+                try {
+                    contentResolver.openInputStream(item.uri)?.use { inputStream ->
+                        contentResolver.openOutputStream(newFileUri)?.use { outputStream ->
+                            inputStream.copyTo(outputStream)
+                        }
+                    }
+                    loadMedia() // Refresh to show the new file
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                    // Clean up if copy fails
+                    contentResolver.delete(newFileUri, null, null)
+                }
+            }
+        }
+    }
 
     fun addTagToMediaItem(uri: String, tag: String) {
         viewModelScope.launch(Dispatchers.IO) {

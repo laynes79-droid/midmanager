@@ -21,6 +21,8 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Audiotrack
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.PlayCircleOutline
@@ -257,6 +259,32 @@ fun DetailScreen(uri: Uri, type: MediaType, navController: NavController, viewMo
                 navigationIcon = {
                     IconButton(onClick = { navController.navigateUp() }) {
                         Icon(Icons.Filled.ArrowBack, contentDescription = "Voltar")
+                    }
+                },
+                actions = {
+                    var showMenu by remember { mutableStateOf(false) }
+                    IconButton(onClick = {
+                        viewModel.deleteMediaItem(uri)
+                        navController.navigateUp()
+                    }) {
+                        Icon(Icons.Filled.Delete, contentDescription = "Deletar")
+                    }
+                    IconButton(onClick = { showMenu = !showMenu }) {
+                        Icon(Icons.Default.MoreVert, contentDescription = "Mais opções")
+                    }
+                    DropdownMenu(
+                        expanded = showMenu,
+                        onDismissRequest = { showMenu = false }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Duplicar") },
+                            onClick = {
+                                item?.let {
+                                    viewModel.duplicateMediaItem(it)
+                                }
+                                showMenu = false
+                            }
+                        )
                     }
                 }
             )
