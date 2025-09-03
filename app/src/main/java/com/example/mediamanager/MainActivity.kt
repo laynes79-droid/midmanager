@@ -9,10 +9,14 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import android.app.Activity
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -22,9 +26,12 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Audiotrack
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayCircleOutline
 import androidx.compose.material.icons.filled.Videocam
@@ -34,9 +41,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
@@ -182,6 +191,24 @@ fun MainScreen(navController: NavController, viewModel: MediaViewModel) {
     val sortOrder by viewModel.sortOrder.collectAsState()
     val allTags by viewModel.allTags.collectAsState()
     val selectedTag by viewModel.tagFilter.collectAsState()
+    val isSelectionMode by viewModel.isSelectionMode.collectAsState()
+    val selectedItems by viewModel.selectedItems.collectAsState()
+
+    val permissionRequest by viewModel.permissionRequest.collectAsState()
+    val launcher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartIntentSenderForResult()
+    ) {
+        if (it.resultCode == Activity.RESULT_OK) {
+            viewModel.loadMedia()
+        }
+    }
+
+    LaunchedEffect(permissionRequest) {
+        permissionRequest?.let {
+            launcher.launch(IntentSenderRequest.Builder(it).build())
+            viewModel.onPermissionRequestHandled()
+        }
+    }
 
     ModalNavigationDrawer(
         drawerState = drawerState,
@@ -216,10 +243,23 @@ fun MainScreen(navController: NavController, viewModel: MediaViewModel) {
         Scaffold(
             topBar = {
                 TopAppBar(
-                    title = { Text("Media Manager") },
+                    title = { Text(if (isSelectionMode) "${selectedItems.size} selecionado(s)" else "Media Manager") },
                     navigationIcon = {
-                        IconButton(onClick = { coroutineScope.launch { drawerState.open() } }) {
-                            Icon(Icons.Filled.Menu, contentDescription = "Abrir menu")
+                        if (isSelectionMode) {
+                            IconButton(onClick = { viewModel.clearSelection() }) {
+                                Icon(Icons.Filled.Close, contentDescription = "Fechar seleção")
+                            }
+                        } else {
+                            IconButton(onClick = { coroutineScope.launch { drawerState.open() } }) {
+                                Icon(Icons.Filled.Menu, contentDescription = "Abrir menu")
+                            }
+                        }
+                    },
+                    actions = {
+                        if (isSelectionMode) {
+                            IconButton(onClick = { viewModel.deleteSelectedItems() }) {
+                                Icon(Icons.Filled.Delete, contentDescription = "Deletar selecionados")
+                            }
                         }
                     },
                     colors = TopAppBarDefaults.topAppBarColors(
@@ -230,6 +270,8 @@ fun MainScreen(navController: NavController, viewModel: MediaViewModel) {
                 )
             }
         ) { paddingValues ->
+            var gridSize by remember { mutableStateOf(128.dp) }
+
             Column(modifier = Modifier.padding(paddingValues)) {
                 val tabs = listOf("Imagens", "Vídeos", "Áudio")
                 val pagerState = rememberPagerState(pageCount = { tabs.size })
@@ -243,19 +285,50 @@ fun MainScreen(navController: NavController, viewModel: MediaViewModel) {
                         )
                     }
                 }
-                HorizontalPager(state = pagerState, modifier = Modifier.fillMaxSize()) { page ->
+                HorizontalPager(
+                    state = pagerState,
+                    modifier = Modifier.fillMaxSize().pointerInput(Unit) {
+                        detectTransformGestures { _, _, zoom, _ ->
+                            gridSize = (gridSize * zoom).coerceIn(80.dp, 256.dp)
+                        }
+                    }
+                ) { page ->
                     when (page) {
                         0 -> {
                             val imageItems by viewModel.imageItems.collectAsState()
-                            MediaGrid(items = imageItems, navController = navController)
+                            MediaGrid(
+                                items = imageItems,
+                                navController = navController,
+                                isSelectionMode = isSelectionMode,
+                                selectedItems = selectedItems,
+                                onEnterSelectionMode = viewModel::enterSelectionMode,
+                                onToggleSelection = viewModel::toggleSelection,
+                                gridSize = gridSize
+                            )
                         }
                         1 -> {
                             val videoItems by viewModel.videoItems.collectAsState()
-                            MediaGrid(items = videoItems, navController = navController)
+                            MediaGrid(
+                                items = videoItems,
+                                navController = navController,
+                                isSelectionMode = isSelectionMode,
+                                selectedItems = selectedItems,
+                                onEnterSelectionMode = viewModel::enterSelectionMode,
+                                onToggleSelection = viewModel::toggleSelection,
+                                gridSize = gridSize
+                            )
                         }
                         2 -> {
                             val audioItems by viewModel.audioItems.collectAsState()
-                            MediaGrid(items = audioItems, navController = navController)
+                            MediaGrid(
+                                items = audioItems,
+                                navController = navController,
+                                isSelectionMode = isSelectionMode,
+                                selectedItems = selectedItems,
+                                onEnterSelectionMode = viewModel::enterSelectionMode,
+                                onToggleSelection = viewModel::toggleSelection,
+                                gridSize = gridSize
+                            )
                         }
                     }
                 }
@@ -286,10 +359,7 @@ fun DetailScreen(uri: Uri, type: MediaType, navController: NavController, viewMo
                 },
                 actions = {
                     var showMenu by remember { mutableStateOf(false) }
-                    IconButton(onClick = {
-                        viewModel.deleteMediaItem(uri)
-                        navController.navigateUp()
-                    }) {
+                    IconButton(onClick = { viewModel.deleteMediaItem(uri) }) {
                         Icon(Icons.Filled.Delete, contentDescription = "Deletar")
                     }
                     IconButton(onClick = { showMenu = !showMenu }) {
@@ -369,22 +439,52 @@ fun DetailScreen(uri: Uri, type: MediaType, navController: NavController, viewMo
 // --- Reusable Components ---
 @Composable
 fun SortControls(currentSortOrder: SortOrder, onSortOrderChanged: (SortOrder) -> Unit) {
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
-        horizontalArrangement = Arrangement.SpaceEvenly
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        Button(
-            onClick = { onSortOrderChanged(SortOrder.BY_DATE_DESC) },
-            colors = if (currentSortOrder == SortOrder.BY_DATE_DESC) ButtonDefaults.buttonColors() else ButtonDefaults.outlinedButtonColors()
-        ) { Text("Data") }
-        Button(
-            onClick = { onSortOrderChanged(SortOrder.BY_NAME_ASC) },
-            colors = if (currentSortOrder == SortOrder.BY_NAME_ASC) ButtonDefaults.buttonColors() else ButtonDefaults.outlinedButtonColors()
-        ) { Text("Nome") }
-        Button(
-            onClick = { onSortOrderChanged(SortOrder.BY_SIZE_DESC) },
-            colors = if (currentSortOrder == SortOrder.BY_SIZE_DESC) ButtonDefaults.buttonColors() else ButtonDefaults.outlinedButtonColors()
-        ) { Text("Tamanho") }
+        // Sort by Date
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Data:", modifier = Modifier.align(Alignment.CenterVertically).weight(0.5f))
+            Button(
+                onClick = { onSortOrderChanged(SortOrder.BY_DATE_DESC) },
+                colors = if (currentSortOrder == SortOrder.BY_DATE_DESC) ButtonDefaults.buttonColors() else ButtonDefaults.outlinedButtonColors(),
+                modifier = Modifier.weight(1f)
+            ) { Text("Recente") }
+            Button(
+                onClick = { onSortOrderChanged(SortOrder.BY_DATE_ASC) },
+                colors = if (currentSortOrder == SortOrder.BY_DATE_ASC) ButtonDefaults.buttonColors() else ButtonDefaults.outlinedButtonColors(),
+                modifier = Modifier.weight(1f)
+            ) { Text("Antigo") }
+        }
+        // Sort by Name
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Nome:", modifier = Modifier.align(Alignment.CenterVertically).weight(0.5f))
+            Button(
+                onClick = { onSortOrderChanged(SortOrder.BY_NAME_ASC) },
+                colors = if (currentSortOrder == SortOrder.BY_NAME_ASC) ButtonDefaults.buttonColors() else ButtonDefaults.outlinedButtonColors(),
+                modifier = Modifier.weight(1f)
+            ) { Text("A-Z") }
+            Button(
+                onClick = { onSortOrderChanged(SortOrder.BY_NAME_DESC) },
+                colors = if (currentSortOrder == SortOrder.BY_NAME_DESC) ButtonDefaults.buttonColors() else ButtonDefaults.outlinedButtonColors(),
+                modifier = Modifier.weight(1f)
+            ) { Text("Z-A") }
+        }
+        // Sort by Size
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Tamanho:", modifier = Modifier.align(Alignment.CenterVertically).weight(0.5f))
+            Button(
+                onClick = { onSortOrderChanged(SortOrder.BY_SIZE_DESC) },
+                colors = if (currentSortOrder == SortOrder.BY_SIZE_DESC) ButtonDefaults.buttonColors() else ButtonDefaults.outlinedButtonColors(),
+                modifier = Modifier.weight(1f)
+            ) { Text("Maior") }
+            Button(
+                onClick = { onSortOrderChanged(SortOrder.BY_SIZE_ASC) },
+                colors = if (currentSortOrder == SortOrder.BY_SIZE_ASC) ButtonDefaults.buttonColors() else ButtonDefaults.outlinedButtonColors(),
+                modifier = Modifier.weight(1f)
+            ) { Text("Menor") }
+        }
     }
 }
 
@@ -410,7 +510,15 @@ fun TagFilterControls(allTags: List<String>, selectedTag: String?, onTagSelected
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun MediaGrid(items: List<MediaItem>, navController: NavController) {
+fun MediaGrid(
+    items: List<MediaItem>,
+    navController: NavController,
+    isSelectionMode: Boolean,
+    selectedItems: Set<Uri>,
+    onEnterSelectionMode: () -> Unit,
+    onToggleSelection: (Uri) -> Unit,
+    gridSize: Dp
+) {
     if (items.isEmpty()) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Text("Nenhum item encontrado.")
@@ -418,7 +526,7 @@ fun MediaGrid(items: List<MediaItem>, navController: NavController) {
         return
     }
     LazyVerticalGrid(
-        columns = GridCells.Adaptive(minSize = 128.dp),
+        columns = GridCells.Adaptive(minSize = gridSize),
         contentPadding = PaddingValues(8.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -427,64 +535,107 @@ fun MediaGrid(items: List<MediaItem>, navController: NavController) {
             MediaGridItem(
                 item = item,
                 navController = navController,
-                modifier = Modifier.animateItemPlacement()
+                modifier = Modifier.animateItemPlacement(),
+                isSelectionMode = isSelectionMode,
+                isSelected = selectedItems.contains(item.uri),
+                onEnterSelectionMode = onEnterSelectionMode,
+                onToggleSelection = onToggleSelection
             )
         }
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun MediaGridItem(item: MediaItem, navController: NavController, modifier: Modifier = Modifier) {
+fun MediaGridItem(
+    item: MediaItem,
+    navController: NavController,
+    modifier: Modifier = Modifier,
+    isSelectionMode: Boolean,
+    isSelected: Boolean,
+    onEnterSelectionMode: () -> Unit,
+    onToggleSelection: (Uri) -> Unit
+) {
     Card(
         modifier = modifier
             .aspectRatio(1f)
-            .clickable {
-                val encodedUri = URLEncoder.encode(item.uri.toString(), StandardCharsets.UTF_8.name())
-                navController.navigate("detail/${item.type.name}/$encodedUri")
-            }
-    ) {
-        Column(
-            modifier = Modifier.fillMaxSize(),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
-        ) {
-            Box(
-                modifier = Modifier.weight(1f).fillMaxWidth(),
-                contentAlignment = Alignment.Center
-            ) {
-                val imageModifier = Modifier.fillMaxSize()
-                when (item.type) {
-                    MediaType.IMAGE -> AsyncImage(model = item.uri, contentDescription = item.name, modifier = imageModifier, contentScale = ContentScale.Crop)
-                    MediaType.VIDEO -> AsyncImage(model = item.uri, contentDescription = item.name, modifier = imageModifier, contentScale = ContentScale.Crop)
-                    MediaType.AUDIO -> Icon(Icons.Default.Audiotrack, contentDescription = "Audio", modifier = Modifier.size(48.dp))
+            .combinedClickable(
+                onClick = {
+                    if (isSelectionMode) {
+                        onToggleSelection(item.uri)
+                    } else {
+                        val encodedUri = URLEncoder.encode(item.uri.toString(), StandardCharsets.UTF_8.name())
+                        navController.navigate("detail/${item.type.name}/$encodedUri")
+                    }
+                },
+                onLongClick = {
+                    if (!isSelectionMode) {
+                        onEnterSelectionMode()
+                    }
+                    onToggleSelection(item.uri)
                 }
+            )
+    ) {
+        Box(modifier = Modifier.fillMaxSize()) {
+            Column(
+                modifier = Modifier.fillMaxSize(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                Box(
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    val imageModifier = Modifier.fillMaxSize()
+                    when (item.type) {
+                        MediaType.IMAGE -> AsyncImage(model = item.uri, contentDescription = item.name, modifier = imageModifier, contentScale = ContentScale.Crop)
+                        MediaType.VIDEO -> AsyncImage(model = item.uri, contentDescription = item.name, modifier = imageModifier, contentScale = ContentScale.Crop)
+                        MediaType.AUDIO -> Icon(Icons.Default.Audiotrack, contentDescription = "Audio", modifier = Modifier.size(48.dp))
+                    }
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(
+                                Brush.verticalGradient(
+                                    colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.7f)),
+                                    startY = 200f * 0.7f,
+                                    endY = 200f
+                                )
+                            )
+                    )
+                    if (item.type == MediaType.VIDEO) {
+                        Icon(
+                            imageVector = Icons.Filled.PlayCircleOutline,
+                            contentDescription = "Play Video",
+                            modifier = Modifier.size(48.dp),
+                            tint = Color.White.copy(alpha = 0.9f)
+                        )
+                    }
+                }
+                Text(
+                    text = item.name,
+                    style = MaterialTheme.typography.bodySmall,
+                    textAlign = TextAlign.Center,
+                    maxLines = 2,
+                    modifier = Modifier.padding(8.dp)
+                )
+            }
+
+            if (isSelected) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(
-                            Brush.verticalGradient(
-                                colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.7f)),
-                                startY = 200f * 0.7f,
-                                endY = 200f
-                            )
-                        )
-                )
-                if (item.type == MediaType.VIDEO) {
+                        .background(Color.Black.copy(alpha = 0.4f)),
+                    contentAlignment = Alignment.TopEnd
+                ) {
                     Icon(
-                        imageVector = Icons.Filled.PlayCircleOutline,
-                        contentDescription = "Play Video",
-                        modifier = Modifier.size(48.dp),
-                        tint = Color.White.copy(alpha = 0.9f)
+                        imageVector = Icons.Filled.CheckCircle,
+                        contentDescription = "Selecionado",
+                        tint = Color.White,
+                        modifier = Modifier.padding(8.dp).size(24.dp)
                     )
                 }
             }
-            Text(
-                text = item.name,
-                style = MaterialTheme.typography.bodySmall,
-                textAlign = TextAlign.Center,
-                maxLines = 2,
-                modifier = Modifier.padding(8.dp)
-            )
         }
     }
 }

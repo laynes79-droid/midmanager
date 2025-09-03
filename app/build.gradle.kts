@@ -1,3 +1,4 @@
+import java.util.Properties
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -7,6 +8,15 @@ plugins {
 android {
     namespace = "com.example.mediamanager"
     compileSdk = 34
+
+    signingConfigs {
+        create("release") {
+            keyAlias = "android-alias"
+            keyPassword = "android-password"
+            storeFile = file("deploy.keystore")
+            storePassword = "android-password"
+        }
+    }
 
     defaultConfig {
         applicationId = "com.example.mediamanager"
@@ -28,6 +38,7 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            signingConfig = signingConfigs.getByName("release")
         }
     }
     compileOptions {

@@ -1,8 +1,11 @@
 package com.example.mediamanager
 
 import android.app.Application
+import android.app.PendingIntent
 import android.content.ContentUris
+import android.content.IntentSender
 import android.net.Uri
+import android.os.Build
 import android.provider.MediaStore
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -21,8 +24,11 @@ import kotlinx.coroutines.withContext
 
 enum class SortOrder {
     BY_DATE_DESC,
+    BY_DATE_ASC,
     BY_NAME_ASC,
-    BY_SIZE_DESC
+    BY_NAME_DESC,
+    BY_SIZE_DESC,
+    BY_SIZE_ASC
 }
 
 class MediaViewModel(application: Application) : AndroidViewModel(application) {
@@ -39,11 +45,20 @@ class MediaViewModel(application: Application) : AndroidViewModel(application) {
     private val _audioItems = MutableStateFlow<List<MediaItem>>(emptyList())
     val audioItems = _audioItems.asStateFlow()
 
+    private val _permissionRequest = MutableStateFlow<IntentSender?>(null)
+    val permissionRequest = _permissionRequest.asStateFlow()
+
     val allTags = MutableStateFlow<List<String>>(emptyList())
 
     val searchQuery = MutableStateFlow("")
     val sortOrder = MutableStateFlow(SortOrder.BY_DATE_DESC)
     val tagFilter = MutableStateFlow<String?>(null)
+
+    private val _isSelectionMode = MutableStateFlow(false)
+    val isSelectionMode = _isSelectionMode.asStateFlow()
+
+    private val _selectedItems = MutableStateFlow<Set<Uri>>(emptySet())
+    val selectedItems = _selectedItems.asStateFlow()
 
     init {
         mediaMetadataDao = AppDatabase.getDatabase(application).mediaMetadataDao()
@@ -67,8 +82,11 @@ class MediaViewModel(application: Application) : AndroidViewModel(application) {
 
         val sorted = when (order) {
             SortOrder.BY_DATE_DESC -> filtered.sortedByDescending { it.dateAdded }
+            SortOrder.BY_DATE_ASC -> filtered.sortedBy { it.dateAdded }
             SortOrder.BY_NAME_ASC -> filtered.sortedBy { it.name }
+            SortOrder.BY_NAME_DESC -> filtered.sortedByDescending { it.name }
             SortOrder.BY_SIZE_DESC -> filtered.sortedByDescending { it.size }
+            SortOrder.BY_SIZE_ASC -> filtered.sortedBy { it.size }
         }
 
         _imageItems.value = sorted.filter { it.type == MediaType.IMAGE }
@@ -81,14 +99,76 @@ class MediaViewModel(application: Application) : AndroidViewModel(application) {
     fun onTagFilterChanged(tag: String?) { tagFilter.value = tag }
 
     fun deleteMediaItem(uri: Uri) {
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                getApplication<Application>().contentResolver.delete(uri, null, null)
-                loadMedia() // Refresh the list after deletion
-            } catch (e: Exception) {
-                e.printStackTrace()
-                // TODO: Handle exceptions, e.g., show an error message to the user
+        viewModelScope.launch {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                val intentSender = MediaStore.createDeleteRequest(
+                    getApplication<Application>().contentResolver,
+                    listOf(uri)
+                ).intentSender
+                _permissionRequest.value = intentSender
+            } else {
+                // Fallback for older versions, though it might fail with Scoped Storage
+                try {
+                    getApplication<Application>().contentResolver.delete(uri, null, null)
+                    loadMedia() // Refresh list
+                } catch (e: Exception) {
+                    // This is likely to be a SecurityException
+                    e.printStackTrace()
+                }
             }
+        }
+    }
+
+    fun onPermissionRequestHandled() {
+        _permissionRequest.value = null
+    }
+
+    fun enterSelectionMode() {
+        _isSelectionMode.value = true
+    }
+
+    fun clearSelection() {
+        _selectedItems.value = emptySet()
+        _isSelectionMode.value = false
+    }
+
+    fun toggleSelection(uri: Uri) {
+        val currentSelection = _selectedItems.value.toMutableSet()
+        if (currentSelection.contains(uri)) {
+            currentSelection.remove(uri)
+        } else {
+            currentSelection.add(uri)
+        }
+        _selectedItems.value = currentSelection
+        if (currentSelection.isEmpty()) {
+            _isSelectionMode.value = false
+        }
+    }
+
+    fun deleteSelectedItems() {
+        val itemsToDelete = _selectedItems.value
+        if (itemsToDelete.isEmpty()) return
+
+        viewModelScope.launch {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                val intentSender = MediaStore.createDeleteRequest(
+                    getApplication<Application>().contentResolver,
+                    itemsToDelete.toList()
+                ).intentSender
+                _permissionRequest.value = intentSender
+            } else {
+                // Fallback for older versions
+                try {
+                    itemsToDelete.forEach { uri ->
+                        getApplication<Application>().contentResolver.delete(uri, null, null)
+                    }
+                    loadMedia()
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+            // Clearing selection after the request is sent
+            clearSelection()
         }
     }
 

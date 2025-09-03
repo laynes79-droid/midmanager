@@ -2,4 +2,17 @@
 .gradle
 
 # Ignore Gradle build output directory
-build
+/build
+
+# Ignore local properties file (contains SDK path)
+/local.properties
+
+# Ignore generated IDE files
+/.idea
+*.iml
+
+# Ignore keystore files
+*.jks
+*.keystore
+app/deploy.keystore
+app/keystore.properties
