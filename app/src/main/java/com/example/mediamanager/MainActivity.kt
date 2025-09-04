@@ -4,6 +4,7 @@ import android.Manifest
 import android.app.Application
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.content.Intent
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -373,6 +374,21 @@ fun DetailScreen(uri: Uri, type: MediaType, navController: NavController, viewMo
                             text = { Text("Duplicar") },
                             onClick = {
                                 item?.let { viewModel.duplicateMediaItem(it) }
+                                showMenu = false
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Abrir com...") },
+                            onClick = {
+                                item?.let {
+                                    val intent = Intent(Intent.ACTION_VIEW).apply {
+                                        val mimeType = context.contentResolver.getType(it.uri)
+                                        setDataAndType(it.uri, mimeType)
+                                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                    }
+                                    val chooser = Intent.createChooser(intent, "Abrir com...")
+                                    context.startActivity(chooser)
+                                }
                                 showMenu = false
                             }
                         )

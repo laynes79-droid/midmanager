@@ -13,7 +13,7 @@ android {
         create("release") {
             keyAlias = "android-alias"
             keyPassword = "android-password"
-            storeFile = file("deploy.keystore")
+            storeFile = file("/app/deploy.keystore")
             storePassword = "android-password"
         }
     }
