@@ -3,20 +3,20 @@ package com.example.mediamanager
 import android.app.Application
 import android.app.PendingIntent
 import android.content.ContentUris
+import android.content.ContentValues
 import android.content.IntentSender
 import android.net.Uri
 import android.os.Build
+import android.os.Environment
 import android.provider.MediaStore
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.mediamanager.database.AppDatabase
 import com.example.mediamanager.database.MediaMetadata
-import android.content.ContentValues
-import android.os.Environment
 import com.example.mediamanager.database.MediaMetadataDao
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
@@ -72,7 +72,7 @@ class MediaViewModel(application: Application) : AndroidViewModel(application) {
 
         viewModelScope.launch {
             combine(
-                searchQuery.debounce(300), // Debounce search query
+                searchQuery.debounce(300),
                 sortOrder,
                 tagFilter
             ) { query, order, tag ->
@@ -118,12 +118,10 @@ class MediaViewModel(application: Application) : AndroidViewModel(application) {
                 ).intentSender
                 _permissionRequest.value = intentSender
             } else {
-                // Fallback for older versions, though it might fail with Scoped Storage
                 try {
                     getApplication<Application>().contentResolver.delete(uri, null, null)
-                    loadMedia() // Refresh list
+                    loadMedia()
                 } catch (e: Exception) {
-                    // This is likely to be a SecurityException
                     e.printStackTrace()
                 }
             }
@@ -168,7 +166,6 @@ class MediaViewModel(application: Application) : AndroidViewModel(application) {
                 ).intentSender
                 _permissionRequest.value = intentSender
             } else {
-                // Fallback for older versions
                 try {
                     itemsToDelete.forEach { uri ->
                         getApplication<Application>().contentResolver.delete(uri, null, null)
@@ -178,7 +175,6 @@ class MediaViewModel(application: Application) : AndroidViewModel(application) {
                     e.printStackTrace()
                 }
             }
-            // Clearing selection after the request is sent
             clearSelection()
         }
     }
@@ -192,7 +188,6 @@ class MediaViewModel(application: Application) : AndroidViewModel(application) {
             val contentValues = ContentValues().apply {
                 put(MediaStore.MediaColumns.DISPLAY_NAME, newName)
                 put(MediaStore.MediaColumns.MIME_TYPE, contentResolver.getType(item.uri))
-                // Copy to the same primary directory (e.g., Pictures, Movies)
                 when (item.type) {
                     MediaType.IMAGE -> put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_PICTURES)
                     MediaType.VIDEO -> put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_MOVIES)
@@ -215,10 +210,9 @@ class MediaViewModel(application: Application) : AndroidViewModel(application) {
                             inputStream.copyTo(outputStream)
                         }
                     }
-                    loadMedia() // Refresh to show the new file
+                    loadMedia()
                 } catch (e: Exception) {
                     e.printStackTrace()
-                    // Clean up if copy fails
                     contentResolver.delete(newFileUri, null, null)
                 }
             }
