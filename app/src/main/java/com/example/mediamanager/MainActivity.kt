@@ -8,6 +8,7 @@ import android.content.Intent
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.IntentSenderRequest
@@ -60,7 +61,10 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import coil.ImageLoader
 import coil.compose.AsyncImage
+import coil.compose.LocalImageLoader
+import coil.decode.VideoFrameDecoder
 import kotlinx.coroutines.launch
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
@@ -225,22 +229,42 @@ fun MainScreen(navController: NavController, viewModel: MediaViewModel) {
                         modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
                     )
 
+                    if (searchQuery.isNotEmpty()) {
+                        val count by viewModel.filteredItemsCount.collectAsState()
+                        Text(
+                            text = "$count item(s) encontrado(s)",
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.padding(start = 8.dp, top = 4.dp)
+                        )
+                    }
+
                     Text("Ordenar por", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 16.dp, bottom = 8.dp))
                     SortControls(
                         currentSortOrder = sortOrder,
-                        onSortOrderChanged = { viewModel.onSortOrderChanged(it) }
+                        onSortOrderChanged = {
+                            viewModel.onSortOrderChanged(it)
+                            coroutineScope.launch { drawerState.close() }
+                        }
                     )
 
                     Text("Filtrar por Tag", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 16.dp, bottom = 8.dp))
                     TagFilterControls(
                         allTags = allTags,
                         selectedTag = selectedTag,
-                        onTagSelected = { viewModel.onTagFilterChanged(it) }
+                        onTagSelected = {
+                            viewModel.onTagFilterChanged(it)
+                            coroutineScope.launch { drawerState.close() }
+                        }
                     )
                 }
             }
         }
     ) {
+        BackHandler(enabled = drawerState.isOpen) {
+            coroutineScope.launch {
+                drawerState.close()
+            }
+        }
         Scaffold(
             topBar = {
                 TopAppBar(
@@ -288,11 +312,7 @@ fun MainScreen(navController: NavController, viewModel: MediaViewModel) {
                 }
                 HorizontalPager(
                     state = pagerState,
-                    modifier = Modifier.fillMaxSize().pointerInput(Unit) {
-                        detectTransformGestures { _, _, zoom, _ ->
-                            gridSize = (gridSize * zoom).coerceIn(80.dp, 256.dp)
-                        }
-                    }
+                    modifier = Modifier.fillMaxSize()
                 ) { page ->
                     when (page) {
                         0 -> {
@@ -304,7 +324,8 @@ fun MainScreen(navController: NavController, viewModel: MediaViewModel) {
                                 selectedItems = selectedItems,
                                 onEnterSelectionMode = viewModel::enterSelectionMode,
                                 onToggleSelection = viewModel::toggleSelection,
-                                gridSize = gridSize
+                                gridSize = gridSize,
+                                onGridSizeChange = { gridSize = it }
                             )
                         }
                         1 -> {
@@ -316,7 +337,8 @@ fun MainScreen(navController: NavController, viewModel: MediaViewModel) {
                                 selectedItems = selectedItems,
                                 onEnterSelectionMode = viewModel::enterSelectionMode,
                                 onToggleSelection = viewModel::toggleSelection,
-                                gridSize = gridSize
+                                gridSize = gridSize,
+                                onGridSizeChange = { gridSize = it }
                             )
                         }
                         2 -> {
@@ -328,7 +350,8 @@ fun MainScreen(navController: NavController, viewModel: MediaViewModel) {
                                 selectedItems = selectedItems,
                                 onEnterSelectionMode = viewModel::enterSelectionMode,
                                 onToggleSelection = viewModel::toggleSelection,
-                                gridSize = gridSize
+                                gridSize = gridSize,
+                                onGridSizeChange = { gridSize = it }
                             )
                         }
                     }
@@ -533,7 +556,8 @@ fun MediaGrid(
     selectedItems: Set<Uri>,
     onEnterSelectionMode: () -> Unit,
     onToggleSelection: (Uri) -> Unit,
-    gridSize: Dp
+    gridSize: Dp,
+    onGridSizeChange: (Dp) -> Unit
 ) {
     if (items.isEmpty()) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -545,7 +569,12 @@ fun MediaGrid(
         columns = GridCells.Adaptive(minSize = gridSize),
         contentPadding = PaddingValues(8.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier.pointerInput(Unit) {
+            detectTransformGestures { _, _, zoom, _ ->
+                onGridSizeChange((gridSize * zoom).coerceIn(80.dp, 256.dp))
+            }
+        }
     ) {
         items(items, key = { it.uri }) { item ->
             MediaGridItem(

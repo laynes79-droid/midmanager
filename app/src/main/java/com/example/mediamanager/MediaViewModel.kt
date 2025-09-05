@@ -16,8 +16,10 @@ import android.os.Environment
 import com.example.mediamanager.database.MediaMetadataDao
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -31,6 +33,7 @@ enum class SortOrder {
     BY_SIZE_ASC
 }
 
+@OptIn(FlowPreview::class)
 class MediaViewModel(application: Application) : AndroidViewModel(application) {
 
     private val mediaMetadataDao: MediaMetadataDao
@@ -54,6 +57,9 @@ class MediaViewModel(application: Application) : AndroidViewModel(application) {
     val sortOrder = MutableStateFlow(SortOrder.BY_DATE_DESC)
     val tagFilter = MutableStateFlow<String?>(null)
 
+    private val _filteredItemsCount = MutableStateFlow(0)
+    val filteredItemsCount = _filteredItemsCount.asStateFlow()
+
     private val _isSelectionMode = MutableStateFlow(false)
     val isSelectionMode = _isSelectionMode.asStateFlow()
 
@@ -65,7 +71,11 @@ class MediaViewModel(application: Application) : AndroidViewModel(application) {
         loadMedia()
 
         viewModelScope.launch {
-            combine(searchQuery, sortOrder, tagFilter) { query, order, tag ->
+            combine(
+                searchQuery.debounce(300), // Debounce search query
+                sortOrder,
+                tagFilter
+            ) { query, order, tag ->
                 Triple(query, order, tag)
             }.collect { (query, order, tag) ->
                 updateFilteredLists(query, order, tag)
@@ -88,6 +98,7 @@ class MediaViewModel(application: Application) : AndroidViewModel(application) {
             SortOrder.BY_SIZE_DESC -> filtered.sortedByDescending { it.size }
             SortOrder.BY_SIZE_ASC -> filtered.sortedBy { it.size }
         }
+        _filteredItemsCount.value = sorted.size
 
         _imageItems.value = sorted.filter { it.type == MediaType.IMAGE }
         _videoItems.value = sorted.filter { it.type == MediaType.VIDEO }

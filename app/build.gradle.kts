@@ -88,6 +88,7 @@ dependencies {
     debugImplementation("androidx.compose.ui:ui-test-manifest")
 
     implementation("io.coil-kt:coil-compose:2.5.0")
+    implementation("io.coil-kt:coil-video:2.5.0")
 
     // ExoPlayer for media playback
     implementation("androidx.media3:media3-exoplayer:1.2.0")
